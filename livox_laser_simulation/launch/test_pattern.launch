@@ -8,6 +8,9 @@
 	<arg name="x" value="0" />
   	<arg name="y" value="0" />
   	<arg name="z" value="0" />
+	<arg name="R" default="0"/>
+    <arg name="P" default="0"/>
+    <arg name="Y" default="0"/>
 
 	<!-- This is where we select the world file-->
 	<arg name="world" default="$(find livox_laser_simulation)/worlds/test_pattern.world" />
@@ -27,6 +30,6 @@
 
 	<!-- spawn the iris_with_ardupilot model, the name must be iris_demo to be detected by ardupilot-->
 	<node name="spawn_model" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen"
-		args="-file $(arg UAV_model) -x $(arg x) -y $(arg y) -z $(arg z) -sdf -model iris_demo " />
+		args="-file $(arg UAV_model) -x $(arg x) -y $(arg y) -z $(arg z) -R $(arg R) -P $(arg P) -Y $(arg Y) -sdf -model Mid360" />
 
 </launch>

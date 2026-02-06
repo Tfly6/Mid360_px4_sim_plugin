@@ -7,6 +7,11 @@
 #include <ros/node_handle.h>
 #include <tf/transform_broadcaster.h>
 #include <gazebo/plugins/RayPlugin.hh>
+#include <gazebo/physics/Model.hh>
+#include <gazebo/physics/Link.hh>
+#include <sdf/Element.hh>
+#include <sdf/sdf.hh>
+#include <gazebo/transport/transport.hh>
 #include "livox_ode_multiray_shape.h"
 
 namespace gazebo {
@@ -103,6 +108,7 @@ class LivoxPointsPlugin : public RayPlugin {
     transport::NodePtr node;
     gazebo::sensors::SensorPtr raySensor;
     std::vector<AviaRotateInfo> aviaInfos;
+    physics::ModelPtr parentModel;
 
     std::shared_ptr<ros::NodeHandle> rosNode;
     ros::Publisher rosPointPub;
@@ -115,11 +121,18 @@ class LivoxPointsPlugin : public RayPlugin {
     uint16_t publishPointCloudType;
     bool visualize = false;
     std::string frameName = "livox";
+    bool debug = false;
+    bool enableSelfFilter = true;
 
     double maxDist = 400.0;
     double minDist = 0.1;
 
     bool useInf = true;
+    
+    //my add
+    std::vector<physics::LinkPtr> selfLinks;  // 存储需要滤波的本体连杆
+   bool IsPointInSelfLinks(const ignition::math::Vector3d& point);
+	 bool selfLinksInitialized = false;
 };
 
 }  // namespace gazebo
