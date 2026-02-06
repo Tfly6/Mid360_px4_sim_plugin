@@ -56,5 +56,13 @@
         "cinttypes": "cpp",
         "typeinfo": "cpp",
         "condition_variable": "cpp"
-    }
+    },
+    "python.autoComplete.extraPaths": [
+        "/home/tfly/temp/test2_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/tfly/temp/test2_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages"
+    ]
 }
