@@ -57,7 +57,7 @@
 				    <samples>360</samples>
 				    <resolution>1</resolution>
 				    <min_angle>-1.57</min_angle>
-           	<max_angle>0.981223276667</max_angle>
+           	<max_angle>1.57</max_angle>
 				  </vertical>
 			  </scan>
 			  <range>
