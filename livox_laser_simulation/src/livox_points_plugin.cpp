@@ -17,6 +17,7 @@
 #include <gazebo/physics/World.hh>
 #include <gazebo/sensors/RaySensor.hh>
 #include <gazebo/transport/Node.hh>
+#include <gazebo/common/SystemPaths.hh>
 #include <ignition/math/Vector3.hh>
 #include <livox_laser_simulation/CustomMsg.h>
 #include <limits>
@@ -68,9 +69,13 @@ void LivoxPointsPlugin::Load(gazebo::sensors::SensorPtr _parent, sdf::ElementPtr
     std::vector<std::vector<double>> datas;
     std::string file_name = _sdf->Get<std::string>("csv_file_name");
 
-    std::string filePath(__FILE__);
-    size_t found = filePath.find_last_of("/\\");
-    file_name = std::string(filePath.substr(0, found)) + "/../scan_mode/" + file_name;
+    //std::string filePath(__FILE__);
+    //size_t found = filePath.find_last_of("/\\");
+    std::string uri = "model://Mid360";
+    auto resolved = gazebo::common::SystemPaths::Instance()->FindFileURI(uri);
+    ROS_INFO_STREAM("resolved = " << resolved );
+    file_name = std::string(resolved) + "/scan_mode/" + file_name;
+    //file_name = std::string(filePath.substr(0,) + "/../scan_mode/" + file_name;
 
     ROS_INFO_STREAM("load csv file name:" << file_name);
     if (!CsvReader::ReadCsvFile(file_name, datas)) {

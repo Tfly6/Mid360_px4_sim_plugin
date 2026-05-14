@@ -36,9 +36,12 @@ catkin build
 
 ## 运行
 
+**注：必须保证 Gazebo 模型路径里只有一个Mid360 模型**
+
 1. 为验证插件是否正常工作，你可以运行这个最小化示例：:
 ```bash
 source ~/catkin_ws/devel/setup.bash
+source ~/catkin_ws/src/Mid360_px4_sim_plugin/gazebo_setup.bash # 设置模型路径
 roslaunch livox_laser_simulation test_pattern.launch
 ```
 你应该能在 RViz 中看到一个点云，并且在 Gazebo 窗口中看到一个旋转的激光。
@@ -144,13 +147,13 @@ roslaunch px4 mavros_posix_sitl_mid360.launch
     reflectivity: 
     tag: 
     line: 
-
+    
     ```
 
 
-# ---------------------------------------------
+---------------------------------------------
 
-## Citation
+# Citation
 
 If you use this plugin in your research, please cite the following paper:
 
