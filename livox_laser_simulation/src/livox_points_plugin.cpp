@@ -28,22 +28,6 @@
 namespace gazebo {
 GZ_REGISTER_SENSOR_PLUGIN(LivoxPointsPlugin)
 
-bool IsPointInLink(const ignition::math::Vector3d& point, const physics::LinkPtr& link)
-{
-    if (!link) return false;
-
-    // 获取 link 在 world 坐标系中的 AABB
-    auto aabb = link->CollisionBoundingBox();
-
-    // 膨胀一点（防止因浮点误差漏掉）
-    double padding = 0.01; // 1 cm
-    aabb.Min() -= ignition::math::Vector3d(padding, padding, padding);
-    aabb.Max() += ignition::math::Vector3d(padding, padding, padding);
-
-    // 检查点是否在 AABB 内
-    return aabb.Contains(point);
-}
-
 LivoxPointsPlugin::LivoxPointsPlugin() {}
 
 LivoxPointsPlugin::~LivoxPointsPlugin() {}
@@ -192,7 +176,7 @@ void LivoxPointsPlugin::Load(gazebo::sensors::SensorPtr _parent, sdf::ElementPtr
             break;
     }
 
-    visualize = sdfPtr->Get<bool>("visualize");
+    publishScanVisualization = sdfPtr->Get<bool>("publish_scan_visualization");
     if (sdfPtr->HasElement("debug")) {
         debug = sdfPtr->Get<bool>("debug");
     } else {
@@ -212,7 +196,7 @@ void LivoxPointsPlugin::Load(gazebo::sensors::SensorPtr _parent, sdf::ElementPtr
         ignition::math::Quaterniond ray;
         ray.Euler(ignition::math::Vector3d(0.0, rotate_info.zenith, rotate_info.azimuth));
         auto axis = offset.Rot() * ray * ignition::math::Vector3d(1.0, 0.0, 0.0);
-        start_point = minDist * axis + offset.Pos() - minDist * axis;
+        start_point = offset.Pos();
         end_point = maxDist * axis + offset.Pos();
         rayShape->AddRay(start_point, end_point);
     }
@@ -245,13 +229,30 @@ void LivoxPointsPlugin::Load(gazebo::sensors::SensorPtr _parent, sdf::ElementPtr
 bool LivoxPointsPlugin::IsPointInSelfLinks(const ignition::math::Vector3d& point)
 {
     if (!enableSelfFilter || !this->selfLinksInitialized) return false;
-    
-    for (const auto& link : this->selfLinks) {
-        if (IsPointInLink(point, link)) {
+    for (const auto& aabb : selfLinkBoundingBoxes) {
+        if (aabb.Contains(point)) {
             return true;
         }
     }
     return false;
+}
+
+void LivoxPointsPlugin::UpdateSelfLinkBoundingBoxes()
+{
+    selfLinkBoundingBoxes.clear();
+    if (!enableSelfFilter || !selfLinksInitialized) return;
+
+    selfLinkBoundingBoxes.reserve(selfLinks.size());
+    constexpr double kSelfFilterPadding = 0.01;
+    const ignition::math::Vector3d padding(
+        kSelfFilterPadding, kSelfFilterPadding, kSelfFilterPadding);
+    for (const auto& link : selfLinks) {
+        if (!link) continue;
+        auto aabb = link->CollisionBoundingBox();
+        aabb.Min() -= padding;
+        aabb.Max() += padding;
+        selfLinkBoundingBoxes.push_back(aabb);
+    }
 }
 
 void LivoxPointsPlugin::OnNewLaserScans() {
@@ -259,6 +260,7 @@ void LivoxPointsPlugin::OnNewLaserScans() {
         std::vector<std::pair<int, AviaRotateInfo>> points_pair;
         InitializeRays(points_pair, rayShape);
         rayShape->Update();
+        UpdateSelfLinkBoundingBoxes();
 
         msgs::Set(laserMsg.mutable_time(), world->SimTime());
 
@@ -306,9 +308,7 @@ void LivoxPointsPlugin::InitializeRays(std::vector<std::pair<int, AviaRotateInfo
         ray_index++;
     }
     currStartIndex += samplesStep;
-    if (currStartIndex > maxPointSize) {
-        currStartIndex -= maxPointSize;
-    }
+    currStartIndex %= maxPointSize;
 }
 
 void LivoxPointsPlugin::InitializeScan(msgs::LaserScan *&scan) {
@@ -462,8 +462,12 @@ void LivoxPointsPlugin::PublishPointCloud(std::vector<std::pair<int, AviaRotateI
     auto angle_incre = AngleResolution();
     auto verticle_min = VerticalAngleMin().Radian();
     auto verticle_incre = VerticalAngleResolution();
-    msgs::LaserScan *scan = laserMsg.mutable_scan();
-    InitializeScan(scan);
+    const bool publishScan = publishScanVisualization && scanPub && scanPub->HasConnections();
+    msgs::LaserScan *scan = nullptr;
+    if (publishScan) {
+        scan = laserMsg.mutable_scan();
+        InitializeScan(scan);
+    }
 
     const int64_t total_points = static_cast<int64_t>(points_pair.size());
     int64_t too_close = 0;
@@ -477,6 +481,10 @@ void LivoxPointsPlugin::PublishPointCloud(std::vector<std::pair<int, AviaRotateI
     scan_point.header.frame_id = frameName;
 
     auto &scan_points = scan_point.points;
+    scan_points.reserve(points_pair.size());
+    const auto sensorWorldPose = selfLinksInitialized
+        ? laserCollision->GetLink()->WorldPose()
+        : ignition::math::Pose3d();
     for (auto &pair : points_pair) {
         int verticle_index = roundf((pair.second.zenith - verticle_min) / verticle_incre);
         int horizon_index = roundf((pair.second.azimuth - angle_min) / angle_incre);
@@ -497,8 +505,10 @@ void LivoxPointsPlugin::PublishPointCloud(std::vector<std::pair<int, AviaRotateI
                 ++too_far;
                 range = maxDist;
             }
-            scan->set_ranges(index, range);
-            scan->set_intensities(index, intensity);
+            if (scan) {
+                scan->set_ranges(index, range);
+                scan->set_intensities(index, intensity);
+            }
 
             if (range <= 1e-5) continue; // 无效点
 
@@ -508,21 +518,8 @@ void LivoxPointsPlugin::PublishPointCloud(std::vector<std::pair<int, AviaRotateI
             auto axis = ray * ignition::math::Vector3d(1.0, 0.0, 0.0);
             auto point_local = range * axis;
             
-            // 转换到 world 坐标系（用于自体检测）
-            auto sensorWorldPose = this->laserCollision->GetLink()->WorldPose();
-
-            auto point_world = sensorWorldPose.Pos() + sensorWorldPose.Rot() * point_local;
-
-            // 自体滤波：检查点是否在本体 link 内
-            bool isSelfPoint = false;
-            if (this->selfLinksInitialized) {
-                for (const auto& link : this->selfLinks) {
-                    if (IsPointInLink(point_world, link)) {
-                        isSelfPoint = true;
-                        break;
-                    }
-                }
-            }
+            const bool isSelfPoint = selfLinksInitialized &&
+                IsPointInSelfLinks(sensorWorldPose.Pos() + sensorWorldPose.Rot() * point_local);
 
             if (isSelfPoint) {
                 ++self_filtered;
@@ -547,7 +544,7 @@ void LivoxPointsPlugin::PublishPointCloud(std::vector<std::pair<int, AviaRotateI
     }
     rosPointPub.publish(scan_point);
     ros::spinOnce();
-    if (scanPub && scanPub->HasConnections() && visualize) {
+    if (publishScan) {
         scanPub->Publish(laserMsg);
     }
 }
@@ -559,11 +556,16 @@ void LivoxPointsPlugin::PublishPointCloud2XYZ(std::vector<std::pair<int, AviaRot
     auto angle_incre = AngleResolution();
     auto verticle_min = VerticalAngleMin().Radian();
     auto verticle_incre = VerticalAngleResolution();
-    msgs::LaserScan *scan = laserMsg.mutable_scan();
-    InitializeScan(scan);
+    const bool publishScan = publishScanVisualization && scanPub && scanPub->HasConnections();
+    msgs::LaserScan *scan = nullptr;
+    if (publishScan) {
+        scan = laserMsg.mutable_scan();
+        InitializeScan(scan);
+    }
 
     sensor_msgs::PointCloud2 scan_point;
     std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> pc_vec;
+    pc_vec.reserve(points_pair.size());
     ros::Time timestamp = ros::Time::now();
 
     const int64_t total_points = static_cast<int64_t>(points_pair.size());
@@ -572,9 +574,13 @@ void LivoxPointsPlugin::PublishPointCloud2XYZ(std::vector<std::pair<int, AviaRot
     int64_t zero_range = 0;
     int64_t self_filtered = 0;
     int64_t published = 0;
+    const auto sensorWorldPose = selfLinksInitialized
+        ? laserCollision->GetLink()->WorldPose()
+        : ignition::math::Pose3d();
 
-#pragma omp parallel for
-    for (int i = 0; i < points_pair.size(); ++i) {
+    // This loop writes both a Protobuf message and the output vector. Keeping it
+    // single-threaded avoids Protobuf data races and OpenMP critical-section contention.
+    for (size_t i = 0; i < points_pair.size(); ++i) {
         std::pair<int, gazebo::AviaRotateInfo> &pair = points_pair[i];
         int verticle_index = roundf((pair.second.zenith - verticle_min) / verticle_incre);
         int horizon_index = roundf((pair.second.azimuth - angle_min) / angle_incre);
@@ -586,20 +592,19 @@ void LivoxPointsPlugin::PublishPointCloud2XYZ(std::vector<std::pair<int, AviaRot
             auto range = rayShape->GetRange(pair.first);
             auto intensity = rayShape->GetRetro(pair.first);
             if (range <= 1e-5){
-                #pragma omp atomic
                 ++zero_range;
                 range = 0.0;
             } else if (range < minDist) {
-                #pragma omp atomic
                 ++too_close;
                 range = 0.0;
             } else if (range >= maxDist) {
-                #pragma omp atomic
                 ++too_far;
                 range = maxDist;
             }
-            scan->set_ranges(index, range);
-            scan->set_intensities(index, intensity);
+            if (scan) {
+                scan->set_ranges(index, range);
+                scan->set_intensities(index, intensity);
+            }
 
             if (range <= 1e-5) continue;
 
@@ -609,24 +614,10 @@ void LivoxPointsPlugin::PublishPointCloud2XYZ(std::vector<std::pair<int, AviaRot
             auto axis = ray * ignition::math::Vector3d(1.0, 0.0, 0.0);
             auto point_local = range * axis;
 
-            // 转换到 world 坐标系
-            auto sensorWorldPose = this->laserCollision->GetLink()->WorldPose();
-
-            auto point_world = sensorWorldPose.Pos() + sensorWorldPose.Rot() * point_local;
-
-            // 自体滤波
-            bool isSelfPoint = false;
-            if (this->selfLinksInitialized) {
-                for (const auto& link : this->selfLinks) {
-                    if (IsPointInLink(point_world, link)) {
-                        isSelfPoint = true;
-                        break;
-                    }
-                }
-            }
+            const bool isSelfPoint = selfLinksInitialized &&
+                IsPointInSelfLinks(sensorWorldPose.Pos() + sensorWorldPose.Rot() * point_local);
 
             if (isSelfPoint) {
-                #pragma omp atomic
                 ++self_filtered;
             }
 
@@ -635,11 +626,7 @@ void LivoxPointsPlugin::PublishPointCloud2XYZ(std::vector<std::pair<int, AviaRot
                 pt.x = point_local.X();
                 pt.y = point_local.Y();
                 pt.z = point_local.Z();
-#pragma omp critical
-                {
-                    pc_vec.push_back(pt);
-                }
-                #pragma omp atomic
+                pc_vec.push_back(pt);
                 ++published;
             }
         }
@@ -647,7 +634,7 @@ void LivoxPointsPlugin::PublishPointCloud2XYZ(std::vector<std::pair<int, AviaRot
 
     // 转换为 PointCloud2
     pcl::PointCloud<pcl::PointXYZ> pc;
-    pc.points = pc_vec;
+    pc.points = std::move(pc_vec);
     pcl::toROSMsg(pc, scan_point);
     scan_point.header.stamp = timestamp;
     scan_point.header.frame_id = frameName;
@@ -661,7 +648,7 @@ void LivoxPointsPlugin::PublishPointCloud2XYZ(std::vector<std::pair<int, AviaRot
     }
     rosPointPub.publish(scan_point);
     ros::spinOnce();
-    if (scanPub && scanPub->HasConnections() && visualize) {
+    if (publishScan) {
         scanPub->Publish(laserMsg);
     }
 }
@@ -673,11 +660,16 @@ void LivoxPointsPlugin::PublishPointCloud2XYZRTLT(std::vector<std::pair<int, Avi
     auto angle_incre = AngleResolution();
     auto verticle_min = VerticalAngleMin().Radian();
     auto verticle_incre = VerticalAngleResolution();
-    msgs::LaserScan *scan = laserMsg.mutable_scan();
-    InitializeScan(scan);
+    const bool publishScan = publishScanVisualization && scanPub && scanPub->HasConnections();
+    msgs::LaserScan *scan = nullptr;
+    if (publishScan) {
+        scan = laserMsg.mutable_scan();
+        InitializeScan(scan);
+    }
 
     sensor_msgs::PointCloud2 scan_point;
     std::vector<pcl::LivoxPointXyzrtlt, Eigen::aligned_allocator<pcl::LivoxPointXyzrtlt>> pc_vec;
+    pc_vec.reserve(points_pair.size());
     ros::Time header_timestamp = ros::Time::now();
     auto header_timestamp_sec_nsec = header_timestamp.toNSec();
 
@@ -687,6 +679,9 @@ void LivoxPointsPlugin::PublishPointCloud2XYZRTLT(std::vector<std::pair<int, Avi
     int64_t zero_range = 0;
     int64_t self_filtered = 0;
     int64_t published = 0;
+    const auto sensorWorldPose = selfLinksInitialized
+        ? laserCollision->GetLink()->WorldPose()
+        : ignition::math::Pose3d();
 
     for (int i = 0; i < points_pair.size(); ++i) {
         std::pair<int, AviaRotateInfo> &pair = points_pair[i];
@@ -709,8 +704,10 @@ void LivoxPointsPlugin::PublishPointCloud2XYZRTLT(std::vector<std::pair<int, Avi
                 ++too_far;
                 range = maxDist;
             }
-            scan->set_ranges(index, range);
-            scan->set_intensities(index, intensity);
+            if (scan) {
+                scan->set_ranges(index, range);
+                scan->set_intensities(index, intensity);
+            }
 
             if (range <= 1e-5) continue;
 
@@ -720,21 +717,8 @@ void LivoxPointsPlugin::PublishPointCloud2XYZRTLT(std::vector<std::pair<int, Avi
             auto axis = ray * ignition::math::Vector3d(1.0, 0.0, 0.0);
             auto point_local = range * axis;
 
-            // 转换到 world 坐标系
-            auto sensorWorldPose = this->laserCollision->GetLink()->WorldPose();
-
-            auto point_world = sensorWorldPose.Pos() + sensorWorldPose.Rot() * point_local;
-
-            // 自体滤波
-            bool isSelfPoint = false;
-            if (this->selfLinksInitialized) {
-                for (const auto& link : this->selfLinks) {
-                    if (IsPointInLink(point_world, link)) {
-                        isSelfPoint = true;
-                        break;
-                    }
-                }
-            }
+            const bool isSelfPoint = selfLinksInitialized &&
+                IsPointInSelfLinks(sensorWorldPose.Pos() + sensorWorldPose.Rot() * point_local);
 
             if (isSelfPoint) {
                 ++self_filtered;
@@ -749,14 +733,14 @@ void LivoxPointsPlugin::PublishPointCloud2XYZRTLT(std::vector<std::pair<int, Avi
                 pt.tag = 0;
                 pt.line = pair.second.line;
                 pt.timestamp = static_cast<double>(1e9/200000*i)+header_timestamp_sec_nsec;
-                pc_vec.push_back(std::move(pt));
+                pc_vec.push_back(pt);
                 ++published;
             }
         }
     }
 
     pcl::PointCloud<pcl::LivoxPointXyzrtlt> pc;
-    pc.points = pc_vec;
+    pc.points = std::move(pc_vec);
     pcl::toROSMsg(pc, scan_point);
     scan_point.header.stamp = header_timestamp;
     scan_point.header.frame_id = frameName;
@@ -770,7 +754,7 @@ void LivoxPointsPlugin::PublishPointCloud2XYZRTLT(std::vector<std::pair<int, Avi
     }
     rosPointPub.publish(scan_point);
     ros::spinOnce();
-    if (scanPub && scanPub->HasConnections() && visualize) {
+    if (publishScan) {
         scanPub->Publish(laserMsg);
     }
 }
@@ -782,8 +766,12 @@ void LivoxPointsPlugin::PublishLivoxROSDriverCustomMsg(std::vector<std::pair<int
     auto angle_incre = AngleResolution();
     auto verticle_min = VerticalAngleMin().Radian();
     auto verticle_incre = VerticalAngleResolution();
-    msgs::LaserScan *scan = laserMsg.mutable_scan();
-    InitializeScan(scan);
+    const bool publishScan = publishScanVisualization && scanPub && scanPub->HasConnections();
+    msgs::LaserScan *scan = nullptr;
+    if (publishScan) {
+        scan = laserMsg.mutable_scan();
+        InitializeScan(scan);
+    }
 
     livox_laser_simulation::CustomMsg msg;
     msg.header.frame_id = frameName;
@@ -791,6 +779,7 @@ void LivoxPointsPlugin::PublishLivoxROSDriverCustomMsg(std::vector<std::pair<int
     struct timespec tn;
     clock_gettime(CLOCK_REALTIME, &tn);
     msg.timebase = tn.tv_nsec;
+    msg.points.reserve(points_pair.size());
 
     const int64_t total_points = static_cast<int64_t>(points_pair.size());
     int64_t too_close = 0;
@@ -798,6 +787,9 @@ void LivoxPointsPlugin::PublishLivoxROSDriverCustomMsg(std::vector<std::pair<int
     int64_t zero_range = 0;
     int64_t self_filtered = 0;
     int64_t published = 0;
+    const auto sensorWorldPose = selfLinksInitialized
+        ? laserCollision->GetLink()->WorldPose()
+        : ignition::math::Pose3d();
 
     for (int i = 0; i < points_pair.size(); ++i) {
         std::pair<int, AviaRotateInfo> &pair = points_pair[i];
@@ -820,8 +812,10 @@ void LivoxPointsPlugin::PublishLivoxROSDriverCustomMsg(std::vector<std::pair<int
                 ++too_far;
                 range = maxDist;
             }
-            scan->set_ranges(index, range);
-            scan->set_intensities(index, intensity);
+            if (scan) {
+                scan->set_ranges(index, range);
+                scan->set_intensities(index, intensity);
+            }
 
             if (range <= 1e-5) continue;
 
@@ -831,21 +825,8 @@ void LivoxPointsPlugin::PublishLivoxROSDriverCustomMsg(std::vector<std::pair<int
             auto axis = ray * ignition::math::Vector3d(1.0, 0.0, 0.0);
             auto point_local = range * axis;
 
-            // 转换到 world 坐标系
-            auto sensorWorldPose = this->laserCollision->GetLink()->WorldPose();
-
-            auto point_world = sensorWorldPose.Pos() + sensorWorldPose.Rot() * point_local;
-
-            // 自体滤波
-            bool isSelfPoint = false;
-            if (this->selfLinksInitialized) {
-                for (const auto& link : this->selfLinks) {
-                    if (IsPointInLink(point_world, link)) {
-                        isSelfPoint = true;
-                        break;
-                    }
-                }
-            }
+            const bool isSelfPoint = selfLinksInitialized &&
+                IsPointInSelfLinks(sensorWorldPose.Pos() + sensorWorldPose.Rot() * point_local);
 
             if (isSelfPoint) {
                 ++self_filtered;
@@ -877,7 +858,7 @@ void LivoxPointsPlugin::PublishLivoxROSDriverCustomMsg(std::vector<std::pair<int
     }
     rosPointPub.publish(msg);
     ros::spinOnce();
-    if (scanPub && scanPub->HasConnections() && visualize) {
+    if (publishScan) {
         scanPub->Publish(laserMsg);
     }
 }

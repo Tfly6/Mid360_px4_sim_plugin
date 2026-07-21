@@ -9,6 +9,7 @@
 #include <gazebo/plugins/RayPlugin.hh>
 #include <gazebo/physics/Model.hh>
 #include <gazebo/physics/Link.hh>
+#include <ignition/math/AxisAlignedBox.hh>
 #include <sdf/Element.hh>
 #include <sdf/sdf.hh>
 #include <gazebo/transport/transport.hh>
@@ -119,7 +120,9 @@ class LivoxPointsPlugin : public RayPlugin {
     int64_t maxPointSize = 1000;
     int64_t downSample = 1;
     uint16_t publishPointCloudType;
-    bool visualize = false;
+    // Controls publication of LaserScanStamped for Gazebo's scan visualizer.
+    // This is intentionally distinct from SDF's sensor-level <visualize> tag.
+    bool publishScanVisualization = false;
     std::string frameName = "livox";
     bool debug = false;
     bool enableSelfFilter = true;
@@ -132,7 +135,9 @@ class LivoxPointsPlugin : public RayPlugin {
     //my add
     std::vector<physics::LinkPtr> selfLinks;  // 存储需要滤波的本体连杆
    bool IsPointInSelfLinks(const ignition::math::Vector3d& point);
-	 bool selfLinksInitialized = false;
+   void UpdateSelfLinkBoundingBoxes();
+   bool selfLinksInitialized = false;
+   std::vector<ignition::math::AxisAlignedBox> selfLinkBoundingBoxes;
 };
 
 }  // namespace gazebo
