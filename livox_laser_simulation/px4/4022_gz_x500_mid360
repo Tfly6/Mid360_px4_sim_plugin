@@ -1,0 +1,11 @@
+#!/bin/sh
+#
+# @name Gazebo x500 with Livox Mid-360
+#
+# @type Quadrotor
+#
+
+# Reuse x500's actuator geometry and Gazebo bridge configuration.
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=x500_mid360}
+
+. ${R}etc/init.d-posix/airframes/4001_gz_x500

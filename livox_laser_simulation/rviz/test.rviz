@@ -3,6 +3,7 @@ Panels:
     Name: Displays
 Visualization Manager:
   Class: ""
+  Enabled: true
   Global Options:
     Background Color: 48; 48; 48
     Fixed Frame: livox_link
@@ -29,6 +30,13 @@ Visualization Manager:
       Autocompute Intensity Bounds: true
       Queue Size: 10
       Use Fixed Frame: true
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
@@ -37,5 +45,9 @@ Visualization Manager:
         X: 0
         Y: 0
         Z: 0
+      Name: Current View
+      Near Clip Distance: 0.01
       Pitch: 0.45
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz)
       Yaw: 0.7

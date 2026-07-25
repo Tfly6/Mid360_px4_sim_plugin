@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <model name="x500_mid360">
+    <!-- Follow PX4's x500_depth composition: merge component links into the
+         vehicle model, then constrain the sensor to base_link. -->
+    <include merge="true">
+      <uri>x500</uri>
+    </include>
+    <include merge="true">
+      <uri>model://Mid360</uri>
+      <!-- Forward-mounted with a 22.5-degree pitch. -->
+      <!-- x500's base_link is elevated inside x500_base, so this must be
+           expressed in base_link coordinates instead of model coordinates. -->
+      <pose relative_to="base_link">0.07 0 0.072 0 0.3925 0</pose>
+    </include>
+    <joint name="livox_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>livox_link</child>
+      <!-- A joint pose is expressed in the child-link frame; it is not the
+           sensor mount transform.  The mount transform above is applied by
+           the merge include, following PX4's x500_lidar_front model. -->
+      <pose relative_to="base_link">0 0 0 0 0 0</pose>
+    </joint>
+  </model>
+</sdf>

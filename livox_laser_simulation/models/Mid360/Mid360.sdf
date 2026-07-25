@@ -18,39 +18,36 @@
           <izz>1.583211e-04</izz>
         </inertia>
       </inertial>
-      <collision name = "lidar_collision">
-        <pose>0 0 0 0 0 0</pose>
-        <geometry>
-           <mesh>
-            <scale>1 1 1</scale>
-            <uri>model://Mid360/meshes/livox_mid40.dae</uri>
-          </mesh>
-        </geometry>
-      </collision>
       <visual name = "lidar_visual">
-        <!-- This mesh is authored with Y-up; Gazebo Sim uses Z-up. -->
-        <pose>0 0 0 1.57079632679 0 0</pose>
+        <!-- The Collada asset declares Y_UP and Gazebo Sim converts that
+             coordinate convention while loading it.  Do not apply an
+             additional 90-degree rotation here. -->
+        <pose>0 0 0 0 0 0</pose>
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
             <uri>model://Mid360/meshes/livox_mid-360-90x.dae</uri>
           </mesh>
         </geometry>
+        <material>
+          <!-- Use a light housing colour so the unit remains visible against
+               the world's dark test-pattern geometry and the x500 frame. -->
+          <ambient>0.34 0.34 0.36 1</ambient>
+          <diffuse>0.62 0.62 0.66 1</diffuse>
+          <specular>0.18 0.18 0.20 1</specular>
+        </material>
       </visual>
+      <!-- The LiDAR is rigidly attached to the aircraft and needs no physics
+           collision geometry.  The former high-poly DAE collision made ODE
+           execute trimesh-vs-trimesh contact tests, causing its contact hash
+           table overflow and assertion failure. -->
       <gravity>1</gravity>
       <velocity_decay/>
       <sensor type="gpu_lidar" name="laser_livox">
         <pose>0 0 0.05 0 0 0</pose>
-        <!-- Gazebo/SDF sensor switch: render the ray sensor itself. -->
-        <visualize>true</visualize>
+        <visualize>false</visualize>
         <always_on>True</always_on>
         <update_rate>10</update_rate>
-        <!--
-          Gazebo Sim generates the dense, rectangular input scan. The system
-          plugin below resamples it in Mid-360 CSV order and publishes ROS 2.
-          Increase these grid dimensions when angular interpolation accuracy is
-          more important than GPU LiDAR performance.
-        -->
         <topic>/livox/mid360/scan</topic>
         <lidar>
           <scan>

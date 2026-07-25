@@ -2,7 +2,8 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, SetEnvironmentVariable
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 
 
 def generate_launch_description():
@@ -14,7 +15,8 @@ def generate_launch_description():
     return LaunchDescription([
         SetEnvironmentVariable(
             "GZ_SIM_RESOURCE_PATH",
-            f"{models}:{__import__('os').environ.get('GZ_SIM_RESOURCE_PATH', '')}"),
+            [str(models), ":", ":",
+             EnvironmentVariable("GZ_SIM_RESOURCE_PATH", default_value="")]),
         SetEnvironmentVariable(
             "GZ_SIM_SYSTEM_PLUGIN_PATH",
             f"{plugins}:{__import__('os').environ.get('GZ_SIM_SYSTEM_PLUGIN_PATH', '')}"),

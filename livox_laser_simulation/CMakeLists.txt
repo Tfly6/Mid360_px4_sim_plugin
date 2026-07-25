@@ -49,11 +49,10 @@ target_link_libraries(livox_laser_simulation_gz ${cpp_typesupport_target})
 install(TARGETS livox_laser_simulation_gz
   LIBRARY DESTINATION lib
 )
-install(DIRECTORY models worlds rviz launch
+install(DIRECTORY models worlds rviz launch px4
   DESTINATION share/${PROJECT_NAME}
   OPTIONAL
 )
-install(FILES package.xml README.md DESTINATION share/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()
