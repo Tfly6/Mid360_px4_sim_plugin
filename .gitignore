@@ -3,4 +3,5 @@
 build/
 devel/
 logs/
+__pycache__
 *.bag

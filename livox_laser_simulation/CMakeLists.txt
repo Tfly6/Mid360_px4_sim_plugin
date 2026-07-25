@@ -1,52 +1,59 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.16)
 project(livox_laser_simulation)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Gazebo Harmonic on Ubuntu 22.04 still ships a jsoncpp config written for
+# CMake 3.0. CMake 4 rejects that config unless this compatibility floor is
+# selected before gz-sim8 resolves its transitive dependencies.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.0)
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
 
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  tf
-  sensor_msgs
-  std_msgs
-  message_generation
+find_package(ament_cmake REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(gz-common5 REQUIRED)
+find_package(gz-msgs10 REQUIRED)
+find_package(gz-plugin2 REQUIRED)
+find_package(gz-sim8 REQUIRED)
+find_package(gz-transport13 REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/CustomPoint.msg"
+  "msg/CustomMsg.msg"
+  DEPENDENCIES std_msgs
 )
 
-find_package(gazebo REQUIRED)
-find_package(PCL REQUIRED)
-include_directories(${GAZEBO_INCLUDE_DIRS})
-add_message_files(FILES
-    CustomPoint.msg
-    CustomMsg.msg
-  #   Message2.msg
-  )
-
-generate_messages(DEPENDENCIES
-  std_msgs
+add_library(livox_laser_simulation_gz SHARED
+  src/livox_gz_system.cpp
 )
-#To solve the error which gazebo does not handle the include file well, we must add this line.
-include_directories(/usr/include/)
-
-link_directories(${GAZEBO_LIBRARY_DIRS})
-
-#This is designed for whose proto installed in system is not 2.6. We can install the version of proto in local dir
-#include_directories(/home/lfc/proto/include/)
-#link_directories(/home/lfc/proto/lib/)
-
-include_directories(
-         include
-        ${catkin_INCLUDE_DIRS}
-        ${PCL_INCLUDE_DIRS}
+target_compile_features(livox_laser_simulation_gz PUBLIC cxx_std_17)
+target_include_directories(livox_laser_simulation_gz PRIVATE include)
+ament_target_dependencies(livox_laser_simulation_gz
+  geometry_msgs rclcpp sensor_msgs std_msgs
+)
+target_link_libraries(livox_laser_simulation_gz
+  gz-common5::gz-common5
+  gz-msgs10::gz-msgs10
+  gz-plugin2::core
+  gz-sim8::gz-sim8
+  gz-transport13::gz-transport13
 )
 
-catkin_package(
-        INCLUDE_DIRS include
-        LIBRARIES livox_laser_simulation
-        CATKIN_DEPENDS tf
+rosidl_get_typesupport_target(cpp_typesupport_target
+  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(livox_laser_simulation_gz ${cpp_typesupport_target})
+
+install(TARGETS livox_laser_simulation_gz
+  LIBRARY DESTINATION lib
 )
+install(DIRECTORY models worlds rviz launch
+  DESTINATION share/${PROJECT_NAME}
+  OPTIONAL
+)
+install(FILES package.xml README.md DESTINATION share/${PROJECT_NAME})
 
-add_library(livox_laser_simulation SHARED src/livox_points_plugin.cpp src/livox_ode_multiray_shape.cpp)
-target_link_libraries(livox_laser_simulation ${catkin_LIBRARIES} RayPlugin)
-
-target_link_libraries(livox_laser_simulation libprotobuf.so.9)
+ament_export_dependencies(rosidl_default_runtime)
+ament_package()

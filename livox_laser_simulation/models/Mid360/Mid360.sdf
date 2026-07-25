@@ -28,7 +28,8 @@
         </geometry>
       </collision>
       <visual name = "lidar_visual">
-        <pose>0 0 0 0 0 0</pose>
+        <!-- This mesh is authored with Y-up; Gazebo Sim uses Z-up. -->
+        <pose>0 0 0 1.57079632679 0 0</pose>
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
@@ -38,53 +39,58 @@
       </visual>
       <gravity>1</gravity>
       <velocity_decay/>
-      <sensor type="ray" name="laser_livox">
+      <sensor type="gpu_lidar" name="laser_livox">
         <pose>0 0 0.05 0 0 0</pose>
         <!-- Gazebo/SDF sensor switch: render the ray sensor itself. -->
         <visualize>true</visualize>
         <always_on>True</always_on>
         <update_rate>10</update_rate>
-        <!-- The plugin generates the Livox scan pattern and ROS point cloud. -->
-        <plugin name="gazebo_ros_laser_controller" filename="liblivox_laser_simulation.so">
-			  <ray>
-			  <scan>
-				  <horizontal>
-				    <samples>100</samples>
-				    <resolution>1</resolution>
-				    <min_angle>-1.57</min_angle>
-            <max_angle>1.57</max_angle>
-				  </horizontal>
-				  <vertical>
-				    <samples>360</samples>
-				    <resolution>1</resolution>
-				    <min_angle>-1.57</min_angle>
-           	<max_angle>1.57</max_angle>
-				  </vertical>
-			  </scan>
-			  <range>
-				  <min>0.1</min>
-				  <max>45</max>
-				  <resolution>0.02</resolution>
-			  </range>
-			  <noise>
-				  <type>gaussian</type>
-				  <mean>0.0</mean>
-				  <stddev>0.0</stddev>
-			  </noise>
-			  </ray>
-        <!-- Plugin switch: publish LaserScanStamped for Gazebo scan visualization. -->
-        <publish_scan_visualization>false</publish_scan_visualization>
-		    <samples>18000</samples>
-		    <downsample>1</downsample>
-		    <csv_file_name>mid360-real-centr.csv</csv_file_name>
-        <publish_pointcloud_type>2</publish_pointcloud_type>
-		    <ros_topic>/livox/lidar</ros_topic>
-        <frameName>livox_link</frameName>
-  <!-- self-filter: true to remove points hitting own links; false to disable -->
-        <enable_self_filter>true</enable_self_filter>
-        <debug>false</debug>
-        </plugin>
+        <!--
+          Gazebo Sim generates the dense, rectangular input scan. The system
+          plugin below resamples it in Mid-360 CSV order and publishes ROS 2.
+          Increase these grid dimensions when angular interpolation accuracy is
+          more important than GPU LiDAR performance.
+        -->
+        <topic>/livox/mid360/scan</topic>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-1.57079632679</min_angle>
+              <max_angle>1.57079632679</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>100</samples>
+              <resolution>1</resolution>
+              <min_angle>-1.57079632679</min_angle>
+              <max_angle>1.57079632679</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.1</min>
+            <max>45</max>
+            <resolution>0.02</resolution>
+          </range>
+        </lidar>
       </sensor>
     </link>
+    <!--
+      Gazebo Sim system plugins must be attached to a model or world. A
+      <sensor><plugin> is only reliably consumed by sensor plugins, so putting
+      this at model scope is what makes the direct ROS 2 publisher load.
+    -->
+    <plugin filename="liblivox_laser_simulation_gz.so"
+            name="livox_laser_simulation::LivoxGzSystem">
+      <gz_scan_topic>/livox/mid360/scan</gz_scan_topic>
+      <csv_file>model://Mid360/scan_mode/mid360-real-centr.csv</csv_file>
+      <samples>18000</samples>
+      <downsample>1</downsample>
+      <!-- 0: PointCloud, 1: PointCloud2 XYZ, 2: XYZRTL(T), 3: CustomMsg -->
+      <publish_pointcloud_type>2</publish_pointcloud_type>
+      <ros_topic>/livox/lidar</ros_topic>
+      <frame_name>livox_link</frame_name>
+      <publish_max_range>false</publish_max_range>
+    </plugin>
   </model>
 </sdf>
